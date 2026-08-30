@@ -78,7 +78,6 @@ fn scan(
     auto_dedup: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let auto_dedup = match auto_dedup.as_deref() {
-        Some("structure") => mm_core::scan::AutoDedupMode::Structure,
         Some("off") => mm_core::scan::AutoDedupMode::Off,
         _ => mm_core::scan::AutoDedupMode::Byte, // GUI 默认：字节相同直接删除
     };

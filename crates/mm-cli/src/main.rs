@@ -29,7 +29,7 @@ enum Command {
         /// 扫描后不触发全库去重检测
         #[arg(long)]
         no_dedup: bool,
-        /// 扫描期自动去重：off（默认，进候选组）/ byte（字节相同直接删）/ structure（结构相同也删，谨慎）
+        /// 扫描期自动去重：off（默认，进候选组）/ byte（字节相同直接删，v0.11 起仅支持字节相同）
         #[arg(long, value_name = "MODE", default_value = "off")]
         auto_dedup: String,
     },
@@ -151,7 +151,6 @@ fn cmd_scan(dirs: Vec<PathBuf>, db: Option<PathBuf>, no_dedup: bool, auto_dedup:
     let mut svc = Service::open(&db_path).context("打开数据库失败")?;
     let mode = match auto_dedup.as_str() {
         "byte" => mm_core::scan::AutoDedupMode::Byte,
-        "structure" => mm_core::scan::AutoDedupMode::Structure,
         _ => mm_core::scan::AutoDedupMode::Off,
     };
     let s = svc.scan(&dirs, !no_dedup, mode, None, None)?;

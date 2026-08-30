@@ -113,22 +113,23 @@ impl Repository {
         Ok(rows.next().transpose()?)
     }
 
-    pub fn files_by_fingerprint(&self, fp: &str) -> Result<Vec<FileRecord>, DbError> {
+    /// 同一内容哈希的全部有效文件（字节重复分组；v0.11 起去重只认字节相同）
+    pub fn files_by_content_hash(&self, hash: &str) -> Result<Vec<FileRecord>, DbError> {
         let mut stmt = self.conn.prepare(
             "SELECT id, path, file_name, parent_dir, size_bytes, mtime_ns, content_hash, fingerprint, note_total, status, first_scanned_at
-             FROM files WHERE fingerprint = ?1 AND status NOT IN ('deleted','missing','failed') AND note_total > 0 ORDER BY id",
+             FROM files WHERE content_hash = ?1 AND status NOT IN ('deleted','missing','failed') ORDER BY id",
         )?;
-        let rows = stmt.query_map(params![fp], row_to_file)?;
+        let rows = stmt.query_map(params![hash], row_to_file)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    /// 指纹重复（候选组）的指纹列表：状态有效、有乐器、至少 2 个文件
-    pub fn duplicate_fingerprints(&self) -> Result<Vec<String>, DbError> {
+    /// 内容哈希重复（候选组）的哈希列表：状态有效、至少 2 个文件（v0.11 起仅按字节相同判定重复）
+    pub fn duplicate_content_hashes(&self) -> Result<Vec<String>, DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT fingerprint FROM files
+            "SELECT content_hash FROM files
              WHERE status NOT IN ('deleted','missing','failed')
-               AND fingerprint IS NOT NULL AND note_total > 0
-             GROUP BY fingerprint HAVING COUNT(*) > 1",
+               AND content_hash IS NOT NULL
+             GROUP BY content_hash HAVING COUNT(*) > 1",
         )?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -357,23 +358,24 @@ impl Repository {
     }
 
     /// 标记已不再重复的 pending 组为 dismissed（不再打扰）。
-    /// 用子查询判定"当前仍重复的指纹"，避免长 IN 列表超出 SQLite 变量上限（默认 999）。
+    /// 用子查询判定"当前仍重复的内容哈希"，避免长 IN 列表超出 SQLite 变量上限（默认 999）。
+    /// 注：duplicate_groups.fingerprint 列自 v0.11 起存放内容哈希。
     pub fn dismiss_stale_groups(&mut self) -> Result<u64, DbError> {
         let n = self.conn.execute(
             "UPDATE duplicate_groups SET status='dismissed'
              WHERE status='pending' AND fingerprint NOT IN (
-                 SELECT fingerprint FROM files
+                 SELECT content_hash FROM files
                  WHERE status NOT IN ('deleted','missing','failed')
-                   AND fingerprint IS NOT NULL AND note_total > 0
-                 GROUP BY fingerprint HAVING COUNT(*) > 1
+                   AND content_hash IS NOT NULL
+                 GROUP BY content_hash HAVING COUNT(*) > 1
              )",
             [],
         )?;
         Ok(n as u64)
     }
 
-    /// 已有 pending 组的指纹集合（分批检测时跳过已检测的指纹，避免重复处理）
-    pub fn pending_group_fingerprints(&self) -> Result<HashSet<String>, DbError> {
+    /// 已有 pending 组的哈希集合（分批检测时跳过已检测的哈希，避免重复处理）
+    pub fn pending_group_hashes(&self) -> Result<HashSet<String>, DbError> {
         let mut stmt = self
             .conn
             .prepare("SELECT DISTINCT fingerprint FROM duplicate_groups WHERE status='pending'")?;
@@ -381,15 +383,15 @@ impl Repository {
         Ok(rows.collect::<Result<HashSet<_>, _>>()?)
     }
 
-    /// 剩余待检测的重复指纹组数：还没有 pending 组、且当前仍重复（COUNT(*) > 1）的指纹数
-    pub fn remaining_duplicate_fingerprints(&self) -> Result<u64, DbError> {
+    /// 剩余待检测的重复哈希组数：还没有 pending 组、且当前仍重复（COUNT(*) > 1）的内容哈希数
+    pub fn remaining_duplicate_hashes(&self) -> Result<u64, DbError> {
         let n: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM (
-                SELECT f.fingerprint FROM files f
+                SELECT f.content_hash FROM files f
                 WHERE f.status NOT IN ('deleted','missing','failed')
-                  AND f.fingerprint IS NOT NULL AND f.note_total > 0
-                  AND f.fingerprint NOT IN (SELECT fingerprint FROM duplicate_groups WHERE status='pending')
-                GROUP BY f.fingerprint HAVING COUNT(*) > 1
+                  AND f.content_hash IS NOT NULL
+                  AND f.content_hash NOT IN (SELECT fingerprint FROM duplicate_groups WHERE status='pending')
+                GROUP BY f.content_hash HAVING COUNT(*) > 1
             )",
             [],
             |row| row.get(0),

@@ -17,10 +17,9 @@ A local MIDI library organizer: scan the MIDI files on your computer, build a se
 
 ### Duplicate Handling
 
-- Automatically detect and group duplicate files:
-  - **Byte-identical** (copies);
-  - **Structurally identical** (same instruments and note counts — possibly different versions of the same song).
-- Review groups one by one, or use **"Resolve All"** to handle everything at once: each group keeps the earliest-scanned file by default, and the rest are deleted per your selection.
+- Automatically detect and group **byte-identical** duplicates (exact copies) — only files that are identical byte-for-byte count as duplicates, so different songs are never mistaken for duplicates.
+- Review groups one by one, or use **"Resolve All"** to handle everything at once: each group keeps the earliest-scanned file by default, and the rest are deleted per your selection. You can delete while detection is still running, and stop anytime.
+- During scanning you can enable **"Auto-delete duplicates"**: byte-identical duplicates are deleted immediately and not stored (files already in the library at the same path are never deleted by mistake).
 - A confirmation dialog always appears before deletion — **deletion is permanent and cannot be undone**, so please confirm carefully.
 
 ### Combined Search

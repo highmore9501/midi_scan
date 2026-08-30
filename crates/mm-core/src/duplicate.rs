@@ -55,10 +55,10 @@ pub struct DetectOutcome {
 
 /// 全库全局去重检测（D7），**分批执行**：
 /// - 每次最多处理 `max_files` 个候选文件，达到上限即停止，剩余组留待下次检测；
-/// - 已有 pending 组的指纹跳过（已检测过，避免重复处理）；
-/// - 组内存在相同 content_hash → byte_identical（强），否则 structurally_identical（弱）；
+/// - 已有 pending 组的哈希跳过（已检测过，避免重复处理）；
+/// - **v0.11 起仅按字节完全相同（content_hash 一致）判定重复**，不再把"结构相同"算作重复；
 /// - 组内所有文件（含存量）→ status='duplicate_candidate'（批量事务写入）；
-/// - fingerprint 无唯一约束（A3）：同指纹可再次建 pending 组。
+/// - duplicate_groups.fingerprint 列存放内容哈希（无唯一约束 A3：同哈希可再次建 pending 组）。
 pub fn detect_global_limit(
     db: &mut Repository,
     max_files: usize,
@@ -67,9 +67,9 @@ pub fn detect_global_limit(
     detect_streaming(db, max_files, &cancel, |_| Ok(()))
 }
 
-/// 流式去重检测：逐指纹处理，每建一个候选组立即通过 `on_group` 回调交给调用方
+/// 流式去重检测：逐内容哈希处理，每建一个候选组立即通过 `on_group` 回调交给调用方
 /// （前端可边收边处理删除）；`cancel` 置 true 时提前停止。
-/// 逐指纹独立查询 → 每次读到最新提交，已删除/已解决的文件自动被过滤，与用户删除操作并发安全（WAL）。
+/// 逐哈希独立查询 → 每次读到最新提交，已删除/已解决的文件自动被过滤，与用户删除操作并发安全（WAL）。
 pub fn detect_streaming<F>(
     db: &mut Repository,
     max_files: usize,
@@ -79,22 +79,22 @@ pub fn detect_streaming<F>(
 where
     F: FnMut(&DupGroup) -> Result<(), CoreError>,
 {
-    let fps = db.duplicate_fingerprints()?;
-    // 已存在 pending 组的指纹：跳过（已检测过，避免重复处理）
-    let pending_fps = db.pending_group_fingerprints()?;
+    let hashes = db.duplicate_content_hashes()?;
+    // 已存在 pending 组的哈希：跳过（已检测过，避免重复处理）
+    let pending = db.pending_group_hashes()?;
 
     let mut processed_groups = 0usize;
     let mut processed_files = 0usize;
     let mut new_member_ids: Vec<i64> = Vec::new();
 
-    for fp in &fps {
+    for h in &hashes {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
-        if pending_fps.contains(fp) {
+        if pending.contains(h) {
             continue;
         }
-        let members = db.files_by_fingerprint(fp)?;
+        let members = db.files_by_content_hash(h)?;
         if members.len() < 2 {
             continue;
         }
@@ -102,18 +102,15 @@ where
         if processed_files + members.len() > max_files {
             break;
         }
-        let dup_type = if has_byte_identical(&members) {
-            "byte_identical"
-        } else {
-            "structurally_identical"
-        };
-        let group_id = db.insert_duplicate_group(fp, dup_type)?;
+        // 同内容哈希 → 字节完全相同（v0.11 起去重只认字节相同）
+        let dup_type = "byte_identical";
+        let group_id = db.insert_duplicate_group(h, dup_type)?;
         let member_ids: Vec<i64> = members.iter().map(|m| m.id).collect();
         db.replace_group_members(group_id, &member_ids)?;
         new_member_ids.extend(member_ids.iter().copied());
         let group = DupGroup {
             id: group_id,
-            fingerprint: fp.clone(),
+            fingerprint: h.clone(),
             dup_type: dup_type.to_string(),
             member_count: member_ids.len(),
             members,
@@ -133,21 +130,12 @@ where
     // 不再属于任何 pending 组的候选文件恢复 scanned
     db.reset_stale_candidates()?;
 
-    let remaining_groups = db.remaining_duplicate_fingerprints()? as usize;
+    let remaining_groups = db.remaining_duplicate_hashes()? as usize;
     Ok(DetectOutcome {
         processed_groups,
         processed_files,
         remaining_groups,
     })
-}
-
-fn has_byte_identical(members: &[FileRecord]) -> bool {
-    let mut hashes: Vec<&str> = members
-        .iter()
-        .filter_map(|m| m.content_hash.as_deref())
-        .collect();
-    hashes.sort_unstable();
-    hashes.windows(2).any(|w| w[0] == w[1])
 }
 
 #[derive(Debug, Clone)]

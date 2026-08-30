@@ -12,16 +12,14 @@ use xxhash_rust::xxh3::xxh3_64;
 use crate::duplicate;
 use crate::CoreError;
 
-/// 扫描期的自动去重策略
+/// 扫描期的自动去重策略（v0.11 起仅按字节完全相同判定重复）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AutoDedupMode {
     /// 关闭：重复文件照常入库并进入候选组，由用户处理
     #[default]
     Off,
-    /// 仅字节完全相同（content_hash 一致）时直接删除新发现的重复文件，不入库（安全）
+    /// 字节完全相同（content_hash 一致）时直接删除新发现的重复文件，不入库
     Byte,
-    /// 结构相同（乐器/音符数指纹一致）也直接删除（可能误删不同曲子，谨慎）
-    Structure,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -229,29 +227,7 @@ pub fn scan_roots(
                         Some(duplicate::fingerprint(&info))
                     };
 
-                    // 自动去重（结构相同，仅 Structure 模式）：字节不同但指纹相同 → 直接删（谨慎）
-                    if auto_dedup == AutoDedupMode::Structure && existing.is_none() {
-                        if let Some(fp) = &fingerprint {
-                            if let Some(first) =
-                                db.files_by_fingerprint(fp)?.into_iter().next()
-                            {
-                                if first.path != path_str && Path::new(&first.path).exists() {
-                                    match std::fs::remove_file(path) {
-                                        Ok(()) => {
-                                            summary.deleted_duplicates += 1;
-                                        }
-                                        Err(e) => {
-                                            warn!(file_path = %path_str, error = %e, "删除重复文件失败");
-                                            summary.failed += 1;
-                                        }
-                                    }
-                                    report_progress!(summary, &path_str);
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-
+                    // 自动去重（字节相同）在解析前已处理；此处直接入库
                     let instruments: Vec<ScannedInstrumentInput> = info
                         .instruments
                         .iter()

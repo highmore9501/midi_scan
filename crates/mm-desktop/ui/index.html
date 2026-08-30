@@ -32,10 +32,9 @@
             <label>自动删除重复：</label>
             <select id="autoDedupSelect">
               <option value="byte" selected>仅字节相同（推荐）</option>
-              <option value="structure">结构相同也删（谨慎）</option>
               <option value="off">关闭（进候选组手动处理）</option>
             </select>
-            <span class="hint">字节相同 = 文件完全一致，删除安全；结构相同 = 乐器/音符数一致，可能误删不同曲子</span>
+            <span class="hint">字节相同 = 文件完全一致，删除安全</span>
           </div>
           <div class="row">
             <button id="startScanBtn" class="primary big">开始扫描</button>
