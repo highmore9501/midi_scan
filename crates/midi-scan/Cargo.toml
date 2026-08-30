@@ -1,0 +1,8 @@
+[package]
+name = "midi-scan"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+midly.workspace = true
+thiserror.workspace = true

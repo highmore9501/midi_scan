@@ -1,0 +1,17 @@
+[package]
+name = "mm-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "midi-mgr"
+path = "src/main.rs"
+
+[dependencies]
+midi-scan = { path = "../midi-scan" }
+mm-core = { path = "../mm-core" }
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

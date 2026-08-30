@@ -1,0 +1,13 @@
+[package]
+name = "mm-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+midi-scan = { path = "../midi-scan" }
+mm-db = { path = "../mm-db" }
+walkdir.workspace = true
+xxhash-rust.workspace = true
+rusqlite.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

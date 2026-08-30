@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["crates/midi-scan", "crates/mm-db", "crates/mm-core", "crates/mm-cli", "crates/mm-desktop"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+midly = "0.5"
+rusqlite = { version = "0.31", features = ["bundled"] }
+walkdir = "2"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tauri = "2"
+tauri-build = "2"
+tauri-plugin-dialog = "2"
+
+[profile.release]
+lto = true

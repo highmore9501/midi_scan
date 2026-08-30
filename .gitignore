@@ -1,0 +1,7 @@
+/target
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+output/
+documentation/

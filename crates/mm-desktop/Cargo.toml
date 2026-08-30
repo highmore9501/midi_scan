@@ -1,0 +1,18 @@
+[package]
+name = "mm-desktop"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "midi-manager"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+midi-scan = { path = "../midi-scan" }
+mm-core = { path = "../mm-core" }
+serde_json.workspace = true
