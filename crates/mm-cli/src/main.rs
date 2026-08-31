@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use midi_scan::InstrumentId;
 use mm_core::duplicate::DupGroup;
@@ -101,7 +101,9 @@ enum DbCmd {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt().with_max_level(tracing::Level::WARN).init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .init();
     let cli = Cli::parse();
     match cli.command {
         Command::Scan {
@@ -124,8 +126,18 @@ fn main() -> Result<()> {
             limit,
             offset,
         } => cmd_query(
-            instruments, superset, note_min, note_max, total_min, total_max, name, dir, db, json,
-            limit, offset,
+            instruments,
+            superset,
+            note_min,
+            note_max,
+            total_min,
+            total_max,
+            name,
+            dir,
+            db,
+            json,
+            limit,
+            offset,
         ),
         Command::Dedup {
             dry_run,
@@ -141,12 +153,19 @@ fn default_db_path() -> PathBuf {
     let base = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(base).join(".midi-manager").join("library.sqlite")
+    PathBuf::from(base)
+        .join(".midi-manager")
+        .join("library.sqlite")
 }
 
 // ---------- scan ----------
 
-fn cmd_scan(dirs: Vec<PathBuf>, db: Option<PathBuf>, no_dedup: bool, auto_dedup: String) -> Result<()> {
+fn cmd_scan(
+    dirs: Vec<PathBuf>,
+    db: Option<PathBuf>,
+    no_dedup: bool,
+    auto_dedup: String,
+) -> Result<()> {
     let db_path = db.unwrap_or_else(default_db_path);
     let mut svc = Service::open(&db_path).context("打开数据库失败")?;
     let mode = match auto_dedup.as_str() {
@@ -231,7 +250,10 @@ fn cmd_query(
 
     if json {
         let arr: Vec<serde_json::Value> = rows.iter().map(row_to_json).collect();
-        println!("{}", serde_json::to_string_pretty(&serde_json::Value::Array(arr))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::Value::Array(arr))?
+        );
     } else {
         for r in &rows {
             let insts: Vec<String> = r
@@ -323,10 +345,14 @@ fn parse_instrument(t: &str) -> Result<InstrumentId> {
 
 // ---------- dedup ----------
 
-fn cmd_dedup(dry_run: bool, interactive: bool, keep: Option<String>, db: Option<PathBuf>) -> Result<()> {
+fn cmd_dedup(
+    dry_run: bool,
+    interactive: bool,
+    keep: Option<String>,
+    db: Option<PathBuf>,
+) -> Result<()> {
     let db_path = db.unwrap_or_else(default_db_path);
     let mut svc = Service::open(&db_path).context("打开数据库失败")?;
-    // 先基于最新数据重新检测（分批，单次最多 1000 个候选文件），确保候选组为最新
     let detected = svc.detect_duplicates()?;
     if detected.processed_groups > 0 || detected.processed_files > 0 {
         let remain = if detected.remaining_groups > 0 {
@@ -356,10 +382,7 @@ fn cmd_dedup(dry_run: bool, interactive: bool, keep: Option<String>, db: Option<
         for g in &groups {
             println!(
                 "[组 {}] 类型 {} 指纹 {} 成员 {} 个:",
-                g.id,
-                g.dup_type,
-                g.fingerprint,
-                g.member_count
+                g.id, g.dup_type, g.fingerprint, g.member_count
             );
             for m in &g.members {
                 println!(
@@ -396,7 +419,10 @@ fn auto_resolve(svc: &mut Service, groups: &[DupGroup], rule: &str) -> Result<()
             .filter(|id| *id != keep_id)
             .collect();
         let outcome = svc.resolve_group(g.id, keep_id, &deletes)?;
-        println!("组 {} 已处理：保留 #{}，删除 {} 个文件", g.id, keep_id, outcome.deleted);
+        println!(
+            "组 {} 已处理：保留 #{}，删除 {} 个文件",
+            g.id, keep_id, outcome.deleted
+        );
     }
     Ok(())
 }
@@ -417,7 +443,10 @@ fn interactive_group(svc: &mut Service, g: &DupGroup) -> Result<()> {
             i, m.id, m.path, m.note_total, m.size_bytes, m.first_scanned_at
         );
     }
-    let keep_line = read_line(&format!("保留哪个？（默认 0 = 最早入库 #{}）: ", g.members[0].id))?;
+    let keep_line = read_line(&format!(
+        "保留哪个？（默认 0 = 最早入库 #{}）: ",
+        g.members[0].id
+    ))?;
     let keep_idx: usize = if keep_line.trim().is_empty() {
         0
     } else {

@@ -41,9 +41,10 @@ impl Service {
         query::query_files(&self.db, params)
     }
 
-    /// 全库去重检测（分批，单次最多 DETECT_BATCH_LIMIT 个候选文件）
+    /// 全库去重检测（一次性全量，v0.12：扫描期已自动删除新重复，检测只处理历史遗留，跑一次即可；
+    /// 结果全部保存为候选组，由用户分批去重清理）
     pub fn detect_duplicates(&mut self) -> Result<DetectOutcome, CoreError> {
-        duplicate::detect_global_limit(&mut self.db, duplicate::DETECT_BATCH_LIMIT)
+        duplicate::detect_global_limit(&mut self.db, usize::MAX)
     }
 
     pub fn pending_groups(&self) -> Result<Vec<DupGroup>, CoreError> {

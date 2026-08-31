@@ -201,6 +201,12 @@ pub fn scan_roots(
                                     Ok(()) => {
                                         summary.deleted_duplicates += 1;
                                     }
+                                    // 已不存在（刚读到后又被删的竞态）→ 目标状态已达成，按成功计
+                                    Err(e)
+                                        if e.kind() == std::io::ErrorKind::NotFound =>
+                                    {
+                                        summary.deleted_duplicates += 1;
+                                    }
                                     Err(e) => {
                                         warn!(file_path = %path_str, error = %e, "删除重复文件失败");
                                         summary.failed += 1;
@@ -283,10 +289,10 @@ pub fn scan_roots(
         summary.missing += missing;
     }
 
-    // 全库全局去重检测（D7，分批：单次最多 DETECT_BATCH_LIMIT 个候选文件，
-    // 剩余组由用户处理完当前批次后再触发检测）；完整扫描或中途取消都会执行
+    // 全库全局去重检测（D7，一次性全量：扫描期已自动删除新重复，检测只处理历史遗留；
+    // 完整扫描或中途取消都会执行）
     if run_dedup {
-        let outcome = duplicate::detect_global_limit(db, duplicate::DETECT_BATCH_LIMIT)?;
+        let outcome = duplicate::detect_global_limit(db, usize::MAX)?;
         summary.duplicate_candidates = outcome.processed_files as u64;
     }
 

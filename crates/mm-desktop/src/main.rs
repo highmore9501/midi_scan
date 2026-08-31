@@ -65,7 +65,9 @@ fn default_db_path() -> PathBuf {
     let base = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(base).join(".midi-manager").join("library.sqlite")
+    PathBuf::from(base)
+        .join(".midi-manager")
+        .join("library.sqlite")
 }
 
 // ---------- 命令 ----------
@@ -261,9 +263,10 @@ fn query(
     Ok(serde_json::json!(arr))
 }
 
-/// 流式去重检测：后台逐指纹处理，每建一个候选组立即入队；
+/// 流式去重检测（一次性全量，v0.12）：后台逐内容哈希处理，每建一个候选组立即入队；
 /// 前端通过 `detect_progress` 轮询增量获取（new_groups 取走即清空），可随时 `cancel_detect` 停止，
 /// 也可边检测边执行删除操作（WAL + 最新快照，并发安全）。
+/// 扫描期已自动删除新重复，故检测只处理历史遗留，一次性跑完即可，结果全部保存为候选组。
 #[tauri::command]
 fn detect_duplicates(state: State<AppState>) -> Result<serde_json::Value, String> {
     let cancel = {
@@ -282,7 +285,7 @@ fn detect_duplicates(state: State<AppState>) -> Result<serde_json::Value, String
             let mut svc = Service::open(&db_path).map_err(|e| e.to_string())?;
             let outcome = mm_core::duplicate::detect_streaming(
                 &mut svc.db,
-                mm_core::duplicate::DETECT_BATCH_LIMIT,
+                usize::MAX, // 一次性全量检测（v0.12）
                 &cancel,
                 |group| {
                     let mut j = job.lock().unwrap();
@@ -380,23 +383,29 @@ fn pending_groups(state: State<AppState>) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!(arr))
 }
 
-/// 确认后硬删（D10）
+/// 确认后硬删（D10）。async + spawn_blocking：删除动作在后台线程执行，不阻塞 UI 主线程
+/// （大量文件删除时界面不卡）。
 #[tauri::command]
-fn resolve_group(
-    state: State<AppState>,
+async fn resolve_group(
+    state: State<'_, AppState>,
     group_id: i64,
     keep_id: i64,
     delete_ids: Vec<i64>,
 ) -> Result<serde_json::Value, String> {
-    let mut svc = Service::open(&state.db_path).map_err(|e| e.to_string())?;
-    let out = svc
-        .resolve_group(group_id, keep_id, &delete_ids)
-        .map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({ "deleted": out.deleted }))
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut svc = Service::open(&db_path).map_err(|e| e.to_string())?;
+        let out = svc
+            .resolve_group(group_id, keep_id, &delete_ids)
+            .map_err(|e| e.to_string())?;
+        Ok(serde_json::json!({ "deleted": out.deleted }))
+    })
+    .await
+    .map_err(|e| format!("删除任务执行失败: {e}"))?
 }
 
-/// 一键全部去重：后台线程按默认规则处理所有待处理候选组——
-/// 每组保留最早入库（id 最小）的文件，其余硬删（D9/D10）。
+/// 一键全部去重（分批清理，v0.12）：后台线程按默认规则处理候选组——
+/// 每组保留最早入库（id 最小）的文件，其余硬删（D9/D10）；
 /// 进度通过 `resolve_progress` 轮询，可随时 `cancel_resolve` 停止。
 #[tauri::command]
 fn resolve_all_groups(state: State<AppState>) -> Result<serde_json::Value, String> {
@@ -445,11 +454,14 @@ fn resolve_all_groups(state: State<AppState>) -> Result<serde_json::Value, Strin
                 j.deleted_files = deleted;
                 j.current_group = idx + 1;
             }
+            // 剩余未处理的候选组数（供前端提示"继续下一批"）
+            let remaining_groups = svc.pending_groups().map(|g| g.len()).unwrap_or(0);
             Ok(serde_json::json!({
                 "resolved_groups": processed,
                 "deleted_files": deleted,
                 "errors": errors,
                 "cancelled": cancel.load(Ordering::Relaxed),
+                "remaining_groups": remaining_groups,
             }))
         })();
         let mut j = job.lock().unwrap();
@@ -494,10 +506,7 @@ fn clear_pending_groups(state: State<AppState>) -> Result<serde_json::Value, Str
         .db
         .dismiss_all_pending_groups()
         .map_err(|e| e.to_string())?;
-    let restored = svc
-        .db
-        .reset_stale_candidates()
-        .map_err(|e| e.to_string())?;
+    let restored = svc.db.reset_stale_candidates().map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "dismissed_groups": dismissed,
         "restored_files": restored,
@@ -516,7 +525,11 @@ fn open_file(path: String) -> Result<(), String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        let cmd = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
         std::process::Command::new(cmd)
             .arg(&path)
             .spawn()

@@ -102,9 +102,13 @@ function renderScanProgress(p) {
     const head = p.cancelled
       ? `<span class="spin">${frame}</span> 正在停止扫描……`
       : `<span class="spin">${frame}</span> 正在扫描：${escapeHtml(p.current_file || "（收集文件…）")}`;
-    const dedupText = p.deleted_duplicates > 0 ? ` · 已自动删除重复 ${p.deleted_duplicates}` : "";
+    const dedupText =
+      p.deleted_duplicates > 0
+        ? ` · 已自动删除重复 ${p.deleted_duplicates}`
+        : "";
     el.innerHTML =
-      head + "<br/>" +
+      head +
+      "<br/>" +
       `已发现 ${p.found} · 新增 ${p.new} · 更新 ${p.updated} · 跳过 ${p.skipped} · 失败 ${p.failed}${dedupText}`;
   } else {
     el.textContent = "";
@@ -128,7 +132,10 @@ $("#startScanBtn").addEventListener("click", async () => {
   btn.disabled = true;
   stopBtn.disabled = false;
   try {
-    await invoke("scan", { dirs: state.scanDirs, autoDedup: $("#autoDedupSelect").value });
+    await invoke("scan", {
+      dirs: state.scanDirs,
+      autoDedup: $("#autoDedupSelect").value,
+    });
     setStatus("扫描中……（可切换页面，点「停止扫描」可随时停止）");
     $("#scanStatus").textContent = "";
     stopScanPolling();
@@ -197,19 +204,25 @@ async function loadInstruments() {
 
 function renderInstrumentList() {
   const kw = state.instFilter.toLowerCase();
-  const filtered = state.instruments.filter((x) => !kw || x.name.toLowerCase().includes(kw));
+  const filtered = state.instruments.filter(
+    (x) => !kw || x.name.toLowerCase().includes(kw),
+  );
   $("#instList").innerHTML = filtered
     .map(
       (x) =>
-        `<label><input type="checkbox" data-id="${x.id}" ${x.checked ? "checked" : ""}/> ${escapeHtml(x.name)}</label>`
+        `<label><input type="checkbox" data-id="${x.id}" ${x.checked ? "checked" : ""}/> ${escapeHtml(x.name)}</label>`,
     )
     .join("");
-  $("#instList").querySelectorAll("input[type=checkbox]").forEach((cb) => {
-    cb.addEventListener("change", () => {
-      const inst = state.instruments.find((x) => x.id === Number(cb.dataset.id));
-      if (inst) inst.checked = cb.checked;
+  $("#instList")
+    .querySelectorAll("input[type=checkbox]")
+    .forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const inst = state.instruments.find(
+          (x) => x.id === Number(cb.dataset.id),
+        );
+        if (inst) inst.checked = cb.checked;
+      });
     });
-  });
 }
 
 $("#instFilterInput").addEventListener("input", (e) => {
@@ -229,20 +242,29 @@ function parseRange(v) {
   let hi = null;
   if (parts.length >= 1 && parts[0].trim() !== "") lo = Number(parts[0].trim());
   if (parts.length >= 2 && parts[1].trim() !== "") hi = Number(parts[1].trim());
-  if (parts.length > 2 || (lo !== null && isNaN(lo)) || (hi !== null && isNaN(hi))) {
+  if (
+    parts.length > 2 ||
+    (lo !== null && isNaN(lo)) ||
+    (hi !== null && isNaN(hi))
+  ) {
     throw new Error("区间格式应为 min-max，如 100-5000");
   }
-  if (lo !== null && hi !== null && lo > hi) throw new Error("下限不能大于上限");
+  if (lo !== null && hi !== null && lo > hi)
+    throw new Error("下限不能大于上限");
   return { lo, hi };
 }
 
 function rangeArgs(r) {
-  return r ? { min: r.lo ?? 0, max: r.hi ?? Number.MAX_SAFE_INTEGER } : { min: null, max: null };
+  return r
+    ? { min: r.lo ?? 0, max: r.hi ?? Number.MAX_SAFE_INTEGER }
+    : { min: null, max: null };
 }
 
 async function runQuery() {
   const selectedIds = selectedInstrumentIds();
-  const matchMode = document.querySelector('input[name="matchMode"]:checked').value;
+  const matchMode = document.querySelector(
+    'input[name="matchMode"]:checked',
+  ).value;
   let totalRange = null;
   let noteRange = null;
   try {
@@ -270,7 +292,7 @@ async function runQuery() {
         dir,
         page: state.page,
         pageSize: state.pageSize,
-      })
+      }),
     );
     state.results = rows;
     renderResults();
@@ -279,7 +301,9 @@ async function runQuery() {
     } else if (matchMode === "superset") {
       setStatus(`查询到 ${rows.length} 条（包含所选全部乐器，允许含其他乐器）`);
     } else {
-      setStatus(`查询到 ${rows.length} 条（乐器集合恰好等于所选 ${selectedIds.length} 种）`);
+      setStatus(
+        `查询到 ${rows.length} 条（乐器集合恰好等于所选 ${selectedIds.length} 种）`,
+      );
     }
   } catch (e) {
     /* 状态栏已提示 */
@@ -293,7 +317,8 @@ $("#queryBtn").addEventListener("click", () => {
 
 function renderResults() {
   $("#resultTitle").textContent = `查询结果（第 ${state.page + 1} 页）`;
-  $("#pageInfo").textContent = `第 ${state.page + 1} 页 · 每页 ${state.pageSize} 条`;
+  $("#pageInfo").textContent =
+    `第 ${state.page + 1} 页 · 每页 ${state.pageSize} 条`;
   if (state.results.length === 0) {
     $("#resultTableWrap").innerHTML = '<div class="status">无匹配结果</div>';
     return;
@@ -315,12 +340,17 @@ function renderResults() {
   $("#resultTableWrap").innerHTML = `<table>
     <thead><tr><th>文件名</th><th>路径</th><th>总音符</th><th>乐器</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
-  $("#resultTableWrap").querySelectorAll("button[data-open]").forEach((b) => {
-    b.addEventListener("click", () => {
-      const r = state.results[Number(b.dataset.open)];
-      if (r) invoke("open_file", { path: r.path }).catch((e) => setStatus("打开失败：" + e));
+  $("#resultTableWrap")
+    .querySelectorAll("button[data-open]")
+    .forEach((b) => {
+      b.addEventListener("click", () => {
+        const r = state.results[Number(b.dataset.open)];
+        if (r)
+          invoke("open_file", { path: r.path }).catch((e) =>
+            setStatus("打开失败：" + e),
+          );
+      });
     });
-  });
 }
 
 $("#prevPageBtn").addEventListener("click", () => {
@@ -380,7 +410,7 @@ $("#detectBtn").addEventListener("click", async () => {
   btn.classList.add("danger");
   try {
     await invoke("detect_duplicates");
-    setStatus("正在检测重复……（结果实时追加，可边收边删）");
+    setStatus("正在检测（一次性全量）……结果实时追加，可边收边删");
     stopDetectPolling();
     detectTimer = setInterval(async () => {
       try {
@@ -389,7 +419,9 @@ $("#detectBtn").addEventListener("click", async () => {
           appendGroups(p.new_groups);
         }
         if (p.running) {
-          setStatus(`检测中：已生成 ${p.processed_groups} 个候选组 / ${p.processed_files} 个候选文件`);
+          setStatus(
+            `检测中：已生成 ${p.processed_groups} 个候选组 / ${p.processed_files} 个候选文件`,
+          );
         } else {
           stopDetectPolling();
           btn.dataset.running = "0";
@@ -399,9 +431,12 @@ $("#detectBtn").addEventListener("click", async () => {
             setStatus("检测失败：" + p.error);
           } else if (p.done) {
             const d = p.done;
-            const remain = d.remaining > 0 ? `；还有 ${d.remaining} 组待检测，可再次点击继续` : "";
-            const cancelMsg = d.cancelled ? "；已手动停止" : "";
-            setStatus(`检测结束：本次生成 ${d.groups} 组 / ${d.candidates} 个候选文件${remain}${cancelMsg}`);
+            const cancelMsg = d.cancelled
+              ? "；已手动停止（未检测完部分可稍后重新检测）"
+              : "";
+            setStatus(
+              `检测完成：${d.groups} 个候选组 / ${d.candidates} 个候选文件${cancelMsg}`,
+            );
           }
         }
       } catch (e) {
@@ -448,13 +483,16 @@ $("#resolveAllBtn").addEventListener("click", () => {
     setStatus("没有待处理的候选组");
     return;
   }
-  const totalDeletes = state.groups.reduce((sum, g) => sum + (g.member_count - 1), 0);
-  $("#confirmTitle").textContent = `确认全部去重（${state.groups.length} 个候选组）？`;
+  const totalDeletes = state.groups.reduce(
+    (sum, g) => sum + (g.member_count - 1),
+    0,
+  );
+  $("#confirmTitle").textContent =
+    `确认全部去重（${state.groups.length} 个候选组）？`;
   $("#confirmBody").textContent =
-    `将按默认规则处理全部 ${state.groups.length} 个候选组：\n` +
-    `每组保留最早入库的文件，共删除 ${totalDeletes} 个文件。\n` +
-    `删除为永久操作，不可恢复。\n` +
-    `处理在后台分批执行，可随时停止。确认继续？`;
+    `按默认规则分批清理：每组保留最早入库的文件，删除其余。\n` +
+    `当前共 ${state.groups.length} 个候选组、约 ${totalDeletes} 个待删文件；` +
+    `删除为永久操作，不可恢复；后台执行，可随时停止。确认开始本批？`;
   state.pendingDelete = { all: true };
   $("#confirmModal").classList.remove("hidden");
 });
@@ -476,7 +514,8 @@ $("#clearPendingBtn").addEventListener("click", () => {
     return;
   }
   const totalMembers = state.groups.reduce((s, g) => s + g.member_count, 0);
-  $("#confirmTitle").textContent = `确认清空候选（${state.groups.length} 组）？`;
+  $("#confirmTitle").textContent =
+    `确认清空候选（${state.groups.length} 组）？`;
   $("#confirmBody").textContent =
     `将把全部 ${state.groups.length} 个待处理候选组标记为已忽略，` +
     `${totalMembers} 个文件恢复为「已扫描」状态。\n` +
@@ -503,30 +542,35 @@ function groupCardHtml(g, gi) {
 }
 
 function bindGroupHeadEvents() {
-  $("#dedupList").querySelectorAll(".group-head").forEach((el) => {
-    if (el.dataset.bound) return;
-    el.dataset.bound = "1";
-    el.addEventListener("click", () => {
-      const gi = Number(el.dataset.group);
-      if (state.expandedGroup === gi) {
-        state.expandedGroup = null;
-      } else {
-        state.expandedGroup = gi;
-        // 默认：最早入库（第一个成员）保留，其余勾选删除（D9）
-        const g = state.groups[gi];
-        state.memberChecked = g.members.map((_, i) => i !== 0);
-      }
-      renderGroups();
+  $("#dedupList")
+    .querySelectorAll(".group-head")
+    .forEach((el) => {
+      if (el.dataset.bound) return;
+      el.dataset.bound = "1";
+      el.addEventListener("click", () => {
+        const gi = Number(el.dataset.group);
+        if (state.expandedGroup === gi) {
+          state.expandedGroup = null;
+        } else {
+          state.expandedGroup = gi;
+          // 默认：最早入库（第一个成员）保留，其余勾选删除（D9）
+          const g = state.groups[gi];
+          state.memberChecked = g.members.map((_, i) => i !== 0);
+        }
+        renderGroups();
+      });
     });
-  });
 }
 
 function renderGroups() {
   if (state.groups.length === 0) {
-    $("#dedupList").innerHTML = '<div class="status">没有待处理的去重候选组</div>';
+    $("#dedupList").innerHTML =
+      '<div class="status">没有待处理的去重候选组</div>';
     return;
   }
-  $("#dedupList").innerHTML = state.groups.map((g, gi) => groupCardHtml(g, gi)).join("");
+  $("#dedupList").innerHTML = state.groups
+    .map((g, gi) => groupCardHtml(g, gi))
+    .join("");
   bindGroupHeadEvents();
 }
 
@@ -599,8 +643,16 @@ $("#dedupList").addEventListener("click", (e) => {
       setStatus("未勾选任何要删除的文件");
       return;
     }
-    state.pendingDelete = { groupId: g.id, keepId: g.members[0].id, deleteIds, paths: g.members.filter((_, i) => state.memberChecked[i]).map((m) => m.path) };
-    $("#confirmTitle").textContent = `确认永久删除 ${deleteIds.length} 个文件？`;
+    state.pendingDelete = {
+      groupId: g.id,
+      keepId: g.members[0].id,
+      deleteIds,
+      paths: g.members
+        .filter((_, i) => state.memberChecked[i])
+        .map((m) => m.path),
+    };
+    $("#confirmTitle").textContent =
+      `确认永久删除 ${deleteIds.length} 个文件？`;
     $("#confirmBody").textContent = state.pendingDelete.paths.join("\n");
     $("#confirmModal").classList.remove("hidden");
   }
@@ -616,7 +668,9 @@ $("#confirmYes").addEventListener("click", async () => {
   if (p.clearAll) {
     try {
       const out = await run("清空候选中", () => invoke("clear_pending_groups"));
-      setStatus(`已清空候选：${out.dismissed_groups} 组标记已忽略，${out.restored_files} 个文件恢复为已扫描（未删除任何文件）`);
+      setStatus(
+        `已清空候选：${out.dismissed_groups} 组标记已忽略，${out.restored_files} 个文件恢复为已扫描（未删除任何文件）`,
+      );
       await refreshGroups();
     } catch (e) {
       setStatus("清空候选失败：" + e);
@@ -646,9 +700,18 @@ $("#confirmYes").addEventListener("click", async () => {
               setStatus("全部去重失败：" + r.error);
             } else if (r.done) {
               const d = r.done;
-              const errMsg = d.errors && d.errors.length ? `；失败 ${d.errors.length} 组（${d.errors.join("；")}）` : "";
+              const errMsg =
+                d.errors && d.errors.length
+                  ? `；失败 ${d.errors.length} 组（${d.errors.join("；")}）`
+                  : "";
               const cancelMsg = d.cancelled ? "；已手动停止" : "";
-              setStatus(`全部去重结束：处理 ${d.resolved_groups} 组，删除 ${d.deleted_files} 个文件${errMsg}${cancelMsg}`);
+              const remainMsg =
+                d.remaining_groups > 0
+                  ? `；还有 ${d.remaining_groups} 组待处理，可再次点「全部去重」继续下一批`
+                  : "；全部候选组已处理完";
+              setStatus(
+                `本批处理 ${d.resolved_groups} 组，删除 ${d.deleted_files} 个文件${errMsg}${cancelMsg}${remainMsg}`,
+              );
               await refreshGroups();
             }
           }
@@ -670,7 +733,11 @@ $("#confirmYes").addEventListener("click", async () => {
   // 单组删除
   try {
     const out = await run("删除中", () =>
-      invoke("resolve_group", { groupId: p.groupId, keepId: p.keepId, deleteIds: p.deleteIds })
+      invoke("resolve_group", {
+        groupId: p.groupId,
+        keepId: p.keepId,
+        deleteIds: p.deleteIds,
+      }),
     );
     setStatus(`已硬删 ${out.deleted} 个文件，候选组已解决`);
     await refreshGroups();
@@ -689,7 +756,9 @@ $("#confirmNo").addEventListener("click", () => {
 async function refreshStats() {
   try {
     const s = await run("加载统计", () => invoke("stats"));
-    const counts = s.counts.map((c) => `<div>${escapeHtml(c.status)}: ${c.count}</div>`).join("");
+    const counts = s.counts
+      .map((c) => `<div>${escapeHtml(c.status)}: ${c.count}</div>`)
+      .join("");
     const top = s.instrument_top
       .map((x) => `<div>${escapeHtml(x.name)}: ${x.count} 个文件</div>`)
       .join("");
@@ -714,14 +783,20 @@ document.querySelectorAll("nav button").forEach((b) => {
 });
 
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[c]);
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[c],
+  );
 }
 
 // 初始加载
-setStatus("就绪：F 键无冲突，直接点击操作；数据库默认 ~/.midi-manager/library.sqlite");
+setStatus(
+  "就绪：F 键无冲突，直接点击操作；数据库默认 ~/.midi-manager/library.sqlite",
+);

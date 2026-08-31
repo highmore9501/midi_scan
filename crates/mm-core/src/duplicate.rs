@@ -2,8 +2,8 @@
 
 use std::collections::HashSet;
 
-use mm_db::{FileRecord, Repository};
 use midi_scan::MidiFileInfo;
+use mm_db::{FileRecord, Repository};
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::CoreError;
@@ -39,9 +39,6 @@ pub struct DupGroup {
     pub member_count: usize,
 }
 
-/// 单次去重检测的候选文件数上限：一次最多处理这么多候选文件，剩余留待下次检测
-pub const DETECT_BATCH_LIMIT: usize = 1000;
-
 /// 单次去重检测的结果
 #[derive(Debug, Clone)]
 pub struct DetectOutcome {
@@ -49,14 +46,15 @@ pub struct DetectOutcome {
     pub processed_groups: usize,
     /// 本次标记为候选的文件数
     pub processed_files: usize,
-    /// 仍未检测（还没有 pending 组）的重复指纹组数；处理完当前批次后需再次检测
+    /// 仍未检测（还没有 pending 组）的重复哈希组数（一次性全量下通常为 0；仅被停止时非 0）
     pub remaining_groups: usize,
 }
 
-/// 全库全局去重检测（D7），**分批执行**：
-/// - 每次最多处理 `max_files` 个候选文件，达到上限即停止，剩余组留待下次检测；
+/// 全库全局去重检测（D7）。`max_files` 为单次候选文件数上限，
+/// **v0.12 起调用方传 `usize::MAX` 表示一次性全量检测**（扫描期已自动删除新重复，
+/// 检测只处理历史遗留，跑一次即可；结果全部保存为候选组，由用户分批去重清理）：
 /// - 已有 pending 组的哈希跳过（已检测过，避免重复处理）；
-/// - **v0.11 起仅按字节完全相同（content_hash 一致）判定重复**，不再把"结构相同"算作重复；
+/// - **仅按字节完全相同（content_hash 一致）判定重复**，不再把"结构相同"算作重复；
 /// - 组内所有文件（含存量）→ status='duplicate_candidate'（批量事务写入）；
 /// - duplicate_groups.fingerprint 列存放内容哈希（无唯一约束 A3：同哈希可再次建 pending 组）。
 pub fn detect_global_limit(
@@ -144,6 +142,9 @@ pub struct ResolveOutcome {
 }
 
 /// 用户确认后执行：保留 `keep_id`，硬删 `deletes`（D10，调用方需先经过 UI 确认）。
+/// 性能（v0.13）：所有数据库状态变更合并为**单事务一次提交**（旧实现每个文件 2 次自动提交，
+/// 大量删除时 fsync 开销明显）；SQL 保持每条短语句，不拼长 IN 列表，避免变量数上限问题。
+/// 容错（v0.13）：文件已不存在（NotFound）视为删除成功——陈旧记录不再阻塞候选组。
 pub fn resolve_group(
     db: &mut Repository,
     group_id: i64,
@@ -153,7 +154,9 @@ pub fn resolve_group(
     let members = db.group_members(group_id)?;
     let member_ids: HashSet<i64> = members.iter().map(|m| m.id).collect();
     if !member_ids.contains(&keep_id) {
-        return Err(CoreError::Other(format!("保留文件 {keep_id} 不在该去重组内")));
+        return Err(CoreError::Other(format!(
+            "保留文件 {keep_id} 不在该去重组内"
+        )));
     }
     for id in deletes {
         if !member_ids.contains(id) {
@@ -161,25 +164,48 @@ pub fn resolve_group(
         }
     }
 
-    let mut deleted = 0u64;
+    // 1) 先逐个物理硬删；「文件已不存在」（os error 2）视为成功——目标状态已达成，
+    //    常见于库中有陈旧记录（文件被外部删除/上次中断残留），照常标记删除并继续；
+    //    其余错误（权限、被占用等）才是真失败：即停，已删部分照常入库，组保持 pending。
+    let mut deleted_ids: Vec<i64> = Vec::with_capacity(deletes.len());
+    let mut first_err: Option<CoreError> = None;
     for id in deletes {
         let rec = members.iter().find(|m| m.id == *id).expect("成员已校验");
         match std::fs::remove_file(&rec.path) {
-            Ok(()) => {
-                let now = Repository::now_secs();
-                db.set_file_status(*id, "deleted")?;
-                db.conn().execute(
-                    "UPDATE files SET deleted_at=?1, deleted_reason='dedup_hard' WHERE id=?2",
-                    rusqlite::params![now, id],
-                )?;
-                deleted += 1;
-            }
+            Ok(()) => deleted_ids.push(*id),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => deleted_ids.push(*id),
             Err(e) => {
-                return Err(CoreError::Other(format!("删除失败 {}: {}", rec.path, e)));
+                first_err = Some(CoreError::Other(format!("删除失败 {}: {}", rec.path, e)));
+                break;
             }
         }
     }
-    db.set_file_status(keep_id, "kept")?;
-    db.mark_group_resolved(group_id)?;
-    Ok(ResolveOutcome { deleted })
+
+    // 2) 单事务写入：状态 + deleted_at + 原因合并为一条短 UPDATE，整组一次提交。
+    let now = Repository::now_secs();
+    let tx = db.conn_mut().transaction()?;
+    for id in &deleted_ids {
+        tx.execute(
+            "UPDATE files SET status='deleted', deleted_at=?1, deleted_reason='dedup_hard' WHERE id=?2",
+            rusqlite::params![now, id],
+        )?;
+    }
+    if first_err.is_none() {
+        tx.execute(
+            "UPDATE files SET status='kept' WHERE id=?1",
+            rusqlite::params![keep_id],
+        )?;
+        tx.execute(
+            "UPDATE duplicate_groups SET status='resolved', resolved_at=?1 WHERE id=?2",
+            rusqlite::params![now, group_id],
+        )?;
+    }
+    tx.commit()?;
+
+    if let Some(e) = first_err {
+        return Err(e);
+    }
+    Ok(ResolveOutcome {
+        deleted: deleted_ids.len() as u64,
+    })
 }

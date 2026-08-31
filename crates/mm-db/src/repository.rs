@@ -93,6 +93,11 @@ impl Repository {
         &self.conn
     }
 
+    /// 可变连接：供调用方开启事务（如去重删除的批量状态更新）。
+    pub fn conn_mut(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
+
     // ---------- 文件查询 ----------
 
     pub fn find_by_path(&self, path: &str) -> Result<Option<FileRecord>, DbError> {
